@@ -9,7 +9,7 @@ def addLineNums(codeatt, linenumatt):
     pc2ln = {}
     for lnt in linenumatt['04_line_number_table']:
         pc2ln[lnt['01_start_pc']] = '%4d' % lnt['02_line_number']
-    
+
     codes = []
     for line in codeatt['06_code']:
         pc, ln, code = line.split(':', 2)
@@ -26,7 +26,7 @@ def parseAttribute(att, info, cf):
         i = 8
         while i < 8 + att['05_code_length']:
             opsize = 0
-            mnem, fmt, plen, add_comment = opcodes.code2mnem[ord(info[i])]
+            mnem, fmt, plen, add_comment = opcodes.code2mnem[info[i]]
             opsize += 1
             if mnem == 'lookupswitch':
                 while (i + opsize) % 4 != 0: opsize += 1 # skip to 4-byte boundary
@@ -54,7 +54,7 @@ def parseAttribute(att, info, cf):
                 code += ' ' + str(arg)
             att['06_code'].append(add_comment(cf, code, args))
             i += opsize
-        
+
         att['07_exception_table_length'] = struct.unpack('>h', info[i:i+2])[0]
         i += 2
         att['08_exception_table'] = []
@@ -69,7 +69,7 @@ def parseAttribute(att, info, cf):
         att['09_attributes_count'] = struct.unpack('>h', info[i:i+2])[0]
         i += 2
         att['10_attribute_info'] = []
-        
+
         for x in range(att['09_attributes_count']):
             attai = {}
             attai['01_attribute_name_index'] = struct.unpack('>h', info[i:i+2])[0]
@@ -132,7 +132,7 @@ def parseAttribute(att, info, cf):
             i += parseAnnotation(an, info[i:], cf)
             att['04_runtimevisibleannotations_table'].append(an)
     else:
-        print '#unhandled attribute', att['00_attribute_name']
+        print(('#unhandled attribute', att['00_attribute_name']))
         att['03_info'] = info
 
 def parseAnnotation(an, info, cf):
@@ -157,7 +157,7 @@ def parseElementValue(ev, info, cf):
             if ev['01_tag'] == 'I':
                 ev['02_element_value'] = cf['05_cp_info'][ev['02_element_value_index']]['02_bytes']
             else:
-                ev['02_element_value'] = cf['05_cp_info'][ev['02_element_value_index']]['03_bytes']
+                ev['02_element_value'] = cf['05_cp_info'][ev['02_element_value_index']]['03_bytes'].decode('utf-8')
             return 3
         elif ev['01_tag'] == 'e':
             ev['02_type_name_index'] = struct.unpack('>h', info[:2])[0]
@@ -183,7 +183,7 @@ def parseElementValue(ev, info, cf):
             return i
         else:
             raise '#unknown element and value tag %s' % el['02_tag']
-    
+
 def writeAttribute(att, linenum_cp_index=None):
     result = ''
     if att['00_attribute_name'] == 'Code': # Code
@@ -199,7 +199,7 @@ def writeAttribute(att, linenum_cp_index=None):
             result += struct.pack('>h', et['03_handler_pc'])
             result += struct.pack('>h', et['04_catch_type'])
         result += struct.pack('>h', len(att['10_attribute_info']))
-        
+
         for attai in att['10_attribute_info']:
             result += writeAttribute(attai, linenum_cp_index)
     elif att['00_attribute_name'] == 'LineNumberTable': # LineNumberTable
@@ -226,7 +226,7 @@ def writeAttribute(att, linenum_cp_index=None):
     else:
         result += att['03_info']
     return struct.pack('>h', att['01_attribute_name_index']) + struct.pack('>i', len(result)) + result
-        
+
 def writeCode(code_att, linenum_cp_index):
     bytecodes = ''
     line_number_table = []
@@ -258,7 +258,7 @@ def writeCode(code_att, linenum_cp_index):
                             '02_attribute_length' : 2 + 4*len(line_number_table),
                             '03_line_number_table_length' : len(line_number_table),
                             '04_line_number_table' : line_number_table}
-        
+
         code_att['10_attribute_info'].append(lntatt) # put it on end in case it doesn't exist yet
         for i, attai in enumerate(code_att['10_attribute_info'][:-1]):
             # if it exists, replace it and remove from end
@@ -270,8 +270,8 @@ def writeCode(code_att, linenum_cp_index):
 
 def decompile(f):
     i = 0
-    if binascii.a2b_hex('cafebabe') != f[:4]:
-        print 'error, classfile %s does not start with "cafebabe"' % sys.argv[1]
+    if binascii.unhexlify(b'cafebabe') != f[:4]:
+        print(('error, classfile %s does not start with "cafebabe"' % sys.argv[1]))
         sys.exit(1)
 
     cf = {}
@@ -284,13 +284,13 @@ def decompile(f):
     cf['05_cp_info'] = [{'00_index' : 0, '00_tag_name' : 'unusable at start to get numbering working', '01_tag' : 0}]
     x = 1
     while x < cf['04_constant_pool_count']:
-        tag = ord(f[i])
-        result = {'00_index' : x, '01_tag' : ord(f[i])}
+        tag = f[i]
+        result = {'00_index' : x, '01_tag' : tag}
         if tag == 1: # CONSTANT_Utf8
             result['00_tag_name'] = 'CONSTANT_Utf8'
             length = struct.unpack('>h', f[i+1:i+3])[0]
             result['02_length'] = length
-            result['03_bytes'] = struct.unpack('%ds' % length, f[i+3:i+3+length])[0]
+            result['03_bytes'] = struct.unpack('%ds' % length, f[i+3:i+3+length])[0].decode('utf-8')
             i += 3 + length
         elif tag == 3: # CONSTANT_Integer
             result['00_tag_name'] = 'CONSTANT_Integer'
@@ -329,12 +329,12 @@ def decompile(f):
                 result['00_tag_name'] = 'CONSTANT_Fieldref'
             elif tag == 10:
                 result['00_tag_name'] = 'CONSTANT_Methodref'
-            else:                
+            else:
                 result['00_tag_name'] = 'CONSTANT_Interfaceref'
             result['02_class_index'] = struct.unpack('>h', f[i+1:i+3])[0]
             result['03_name_and_type_index'] = struct.unpack('>h', f[i+3:i+5])[0]
             i += 5
-        elif tag == 12: # CONSTANT_NameAndType 
+        elif tag == 12: # CONSTANT_NameAndType
             result['00_tag_name'] = 'CONSTANT_NameAndType'
             result['02_name_index'] = struct.unpack('>h', f[i+1:i+3])[0]
             result['03_descriptor_index'] = struct.unpack('>h', f[i+3:i+5])[0]
@@ -346,10 +346,10 @@ def decompile(f):
         cf['05_cp_info'].append(result)
         x += 1
 
-    # set '00_value' for CONSTANT_String    
+    # set '00_value' for CONSTANT_String
     for cp in cf['05_cp_info']:
         if cp['00_tag_name'] == 'CONSTANT_String': cp['00_value'] = cf['05_cp_info'][cp['02_string_index']]['03_bytes']
-        
+
     cf['06_access_flags'] = struct.unpack('>h', f[i:i+2])[0]
     i += 2
     cf['07_this_class'] = struct.unpack('>h', f[i:i+2])[0]
@@ -415,7 +415,7 @@ def decompile(f):
         cf['16_attribute_info'].append(ai)
 
     if i != len(f):
-        sys.stderr.write('error, extra bytes at end of file [%s]\n' % binascii.b2a_hex(f[i:]))
+        sys.stderr.write('error, extra bytes at end of file [%s]\n' % binascii.hexlify(f[i:]))
         pprint.PrettyPrinter().pprint(cf)
         sys.exit(1)
     return cf
@@ -423,7 +423,7 @@ def decompile(f):
 def compile(cf, outfile):
     linenum_cp_index = None
     f = open(outfile, 'wb')
-    f.write(binascii.a2b_hex('cafebabe'))
+    f.write(binascii.unhexlify('cafebabe'))
     f.write(struct.pack('>h', cf['02_minor_version']))
     f.write(struct.pack('>h', cf['03_major_version']))
     f.write(struct.pack('>h', cf['04_constant_pool_count']))
@@ -448,7 +448,7 @@ def compile(cf, outfile):
         elif cp_info['01_tag'] in (9, 10, 11): # CONSTANT_Fieldref, CONSTANT_Methodref, CONSTANT_Interfaceref
             f.write(struct.pack('>h', cp_info['02_class_index']))
             f.write(struct.pack('>h', cp_info['03_name_and_type_index']))
-        elif cp_info['01_tag'] == 12: # CONSTANT_NameAndType 
+        elif cp_info['01_tag'] == 12: # CONSTANT_NameAndType
             f.write(struct.pack('>h', cp_info['02_name_index']))
             f.write(struct.pack('>h', cp_info['03_descriptor_index']))
         else:
@@ -487,6 +487,5 @@ if __name__ == '__main__':
     elif len(sys.argv) == 4 and sys.argv[1] == '-c':
         compile(eval(open(sys.argv[2]).read()), sys.argv[3])
     else:
-        print 'usage:\n classfile.py -d <classfile>\n classfile.py -c <pyobjfile> <classfile>'
+        print('usage:\n classfile.py -d <classfile>\n classfile.py -c <pyobjfile> <classfile>')
         sys.exit(1)
-
