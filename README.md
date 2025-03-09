@@ -1,8 +1,8 @@
 pyclassfile
 ============
-A modifed version of classfile that lazily adds extra attributes to fix output on some class files I'm analyzing for a tool.
+A fork of classfile that lazily adds extra attributes to fix output on some class files I'm analyzing for a tool.
 
-Updated more or less for peronsal use, only decompiler was tested with a few class files made in Java 8.
+Updated more or less for personal use, only decompiler was tested with some class files made in Java 8.
 
 ORIGINAL README
 ============
