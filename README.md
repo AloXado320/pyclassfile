@@ -2,13 +2,15 @@ pyclassfile
 ============
 A modifed version of classfile that lazily adds extra attributes to fix output on some class files I'm analyzing for a tool.
 
+Updated more or less for peronsal use, only decompiler was tested with a few class files made in Java 8.
+
 ORIGINAL README
 ============
 
 classfile.py
 ============
 
-classfile.py is a java class file formatter / decompiler / compiler 
+classfile.py is a java class file formatter / decompiler / compiler
 that transforms between binary java class files and a python object
 graph (dicts and arrays).
 
@@ -41,4 +43,4 @@ and can be read back from binary format.
 
 Example
 -------
-[Here's an example](https://github.com/AloXado320/pyclassfile/blob/master/README.md) on how to use this script.
+[Here's an example](https://github.com/AloXado320/pyclassfile/blob/master/EXAMPLE.md) on how to use this script.
