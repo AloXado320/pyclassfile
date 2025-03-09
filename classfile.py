@@ -123,7 +123,6 @@ def parseAttribute(att, info, cf):
     elif att['00_attribute_name'] == 'Deprecated': # Deprecated - nothing to do
         pass
     elif att['00_attribute_name'] == 'RuntimeVisibleAnnotations': # RuntimeVisibleAnnotations
-        att['03_info'] = info
         att['03_runtimevisibleannotations_num'] = struct.unpack('>h', info[:2])[0]
         i = 2
         att['04_runtimevisibleannotations_table'] = []
@@ -131,6 +130,26 @@ def parseAttribute(att, info, cf):
             an = {}
             i += parseAnnotation(an, info[i:], cf)
             att['04_runtimevisibleannotations_table'].append(an)
+    elif att['00_attribute_name'] == 'StackMapTable': # StackMapTable
+        att['03_number_of_entries'] = struct.unpack('>h', info[:2])[0]
+        i = 2
+        att['04_entries'] = []
+        for _ in range(att['03_number_of_entries']):
+            frame = {}
+            i += parseStackMapFrame(frame, info[i:])
+            att['04_entries'].append(frame)
+    elif att['00_attribute_name'] == 'InnerClasses': # InnerClasses
+        att['03_number_of_classes'] = struct.unpack('>h', info[:2])[0]
+        i = 2
+        att['04_classes'] = []
+        for _ in range(att['03_number_of_classes']):
+            inner_class = {}
+            inner_class['00_inner_class_info_index'] = struct.unpack('>h', info[i:i+2])[0]
+            inner_class['01_outer_class_info_index'] = struct.unpack('>h', info[i+2:i+4])[0]
+            inner_class['02_inner_name_index'] = struct.unpack('>h', info[i+4:i+6])[0]
+            inner_class['03_inner_class_access_flags'] = struct.unpack('>h', info[i+6:i+8])[0]
+            i += 8
+            att['04_classes'].append(inner_class)
     else:
         print(('#unhandled attribute', att['00_attribute_name']))
         att['03_info'] = info
@@ -184,6 +203,63 @@ def parseElementValue(ev, info, cf):
         else:
             raise '#unknown element and value tag %s' % el['02_tag']
 
+def parseStackMapFrame(frame, info):
+    frame['00_frame_type'] = struct.unpack('B', info[:1])[0]
+    i = 1
+    if frame['00_frame_type'] <= 63:  # SAME frame
+        pass  # No additional information needed
+    elif frame['00_frame_type'] <= 127:  # SAME_LOCALS_1_STACK_ITEM frame
+        frame['01_stack'] = parseVerificationTypeInfo(info[i:])
+        i += frame['01_stack']['00_size']
+    elif frame['00_frame_type'] == 247:  # SAME_LOCALS_1_STACK_ITEM_EXTENDED frame
+        frame['01_offset_delta'] = struct.unpack('>h', info[i:i+2])[0]
+        i += 2
+        frame['02_stack'] = parseVerificationTypeInfo(info[i:])
+        i += frame['02_stack']['00_size']
+    elif 248 <= frame['00_frame_type'] <= 250:  # CHOP frame
+        frame['01_offset_delta'] = struct.unpack('>h', info[i:i+2])[0]
+        i += 2
+    elif frame['00_frame_type'] == 251:  # SAME_FRAME_EXTENDED frame
+        frame['01_offset_delta'] = struct.unpack('>h', info[i:i+2])[0]
+        i += 2
+    elif 252 <= frame['00_frame_type'] <= 254:  # APPEND frame
+        frame['01_offset_delta'] = struct.unpack('>h', info[i:i+2])[0]
+        i += 2
+        frame['02_locals'] = []
+        for _ in range(frame['00_frame_type'] - 251):
+            local = parseVerificationTypeInfo(info[i:])
+            frame['02_locals'].append(local)
+            i += local['00_size']
+    elif frame['00_frame_type'] == 255:  # FULL_FRAME
+        frame['01_offset_delta'] = struct.unpack('>h', info[i:i+2])[0]
+        i += 2
+        frame['02_number_of_locals'] = struct.unpack('>h', info[i:i+2])[0]
+        i += 2
+        frame['03_locals'] = []
+        for _ in range(frame['02_number_of_locals']):
+            local = parseVerificationTypeInfo(info[i:])
+            frame['03_locals'].append(local)
+            i += local['00_size']
+        frame['04_number_of_stack_items'] = struct.unpack('>h', info[i:i+2])[0]
+        i += 2
+        frame['05_stack'] = []
+        for _ in range(frame['04_number_of_stack_items']):
+            stack_item = parseVerificationTypeInfo(info[i:])
+            frame['05_stack'].append(stack_item)
+            i += stack_item['00_size']
+    return i
+
+def parseVerificationTypeInfo(info):
+    vti = {'01_tag': struct.unpack('B', info[:1])[0]}
+    i = 1
+    if vti['01_tag'] in [7, 8]:  # ITEM_Object, ITEM_Uninitialized
+        vti['02_cpool_index'] = struct.unpack('>h', info[i:i+2])[0]
+        vti['00_size'] = 3  # 1 byte for tag + 2 bytes for cpool_index
+    else:
+        vti['00_size'] = 1  # Only 1 byte for other types
+    return vti
+
+
 def writeAttribute(att, linenum_cp_index=None):
     result = ''
     if att['00_attribute_name'] == 'Code': # Code
@@ -223,9 +299,50 @@ def writeAttribute(att, linenum_cp_index=None):
         result += struct.pack('>h', att['01_constantvalue_index'])
     elif att['00_attribute_name'] == 'SourceFile': # SourceFile
         result += struct.pack('>h', att['03_sourcefile_index'])
+    elif att['00_attribute_name'] == 'StackMapTable': # StackMapTable
+        result += struct.pack('>h', att['03_number_of_entries'])
+        for frame in att['04_entries']:
+            frame_type = frame['frame_type']
+            result += struct.pack('B', frame_type)
+            if frame_type <= 63:  # SAME frame
+                pass  # No additional information needed
+            elif frame_type <= 127:  # SAME_LOCALS_1_STACK_ITEM frame
+                result += writeVerificationTypeInfo(frame['stack'])
+            elif frame_type == 247:  # SAME_LOCALS_1_STACK_ITEM_EXTENDED frame
+                result += struct.pack('>h', frame['offset_delta'])
+                result += writeVerificationTypeInfo(frame['stack'])
+            elif 248 <= frame_type <= 250:  # CHOP frame
+                result += struct.pack('>h', frame['offset_delta'])
+            elif frame_type == 251:  # SAME_FRAME_EXTENDED frame
+                result += struct.pack('>h', frame['offset_delta'])
+            elif 252 <= frame_type <= 254:  # APPEND frame
+                result += struct.pack('>h', frame['offset_delta'])
+                for local in frame['locals']:
+                    result += writeVerificationTypeInfo(local)
+            elif frame_type == 255:  # FULL_FRAME
+                result += struct.pack('>h', frame['offset_delta'])
+                result += struct.pack('>h', frame['number_of_locals'])
+                for local in frame['locals']:
+                    result += writeVerificationTypeInfo(local)
+                result += struct.pack('>h', frame['number_of_stack_items'])
+                for stack_item in frame['stack']:
+                    result += writeVerificationTypeInfo(stack_item)
+    elif att['00_attribute_name'] == 'InnerClasses': # InnerClasses
+        result += struct.pack('>h', att['03_number_of_classes'])
+        for inner_class in att['04_classes']:
+            result += struct.pack('>h', inner_class['00_inner_class_info_index'])
+            result += struct.pack('>h', inner_class['01_outer_class_info_index'])
+            result += struct.pack('>h', inner_class['02_inner_name_index'])
+            result += struct.pack('>h', inner_class['03_inner_class_access_flags'])
     else:
         result += att['03_info']
     return struct.pack('>h', att['01_attribute_name_index']) + struct.pack('>i', len(result)) + result
+
+def writeVerificationTypeInfo(vti):
+    result = struct.pack('B', vti['tag'])
+    if vti['tag'] in [7, 8]:  # ITEM_Object, ITEM_Uninitialized
+        result += struct.pack('>h', vti['cpool_index'])
+    return result
 
 def writeCode(code_att, linenum_cp_index):
     bytecodes = ''
