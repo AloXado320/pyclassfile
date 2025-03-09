@@ -104,6 +104,23 @@ def parseAttribute(att, info, cf):
             lvt['00_name'] = cf['05_cp_info'][lvt['04_descriptor_index']]['03_bytes'] + ' ' + cf['05_cp_info'][lvt['03_name_index']]['03_bytes']
             i += 10
             att['04_local_variable_table'].append(lvt)
+    elif att['00_attribute_name'] == 'LocalVariableTypeTable': # LocalVariableTypeTable
+        att['03_local_variable_type_table_length'] = struct.unpack('>h', info[:2])[0]
+        i = 2
+        att['04_local_variable_type_table'] = []
+        for x in range(att['03_local_variable_type_table_length']):
+            lvtt = {}
+            lvtt['01_start_pc'] = struct.unpack('>h', info[i:i+2])[0]
+            lvtt['02_length'] = struct.unpack('>h', info[i+2:i+4])[0]
+            lvtt['03_name_index'] = struct.unpack('>h', info[i+4:i+6])[0]
+            lvtt['04_signature_index'] = struct.unpack('>h', info[i+6:i+8])[0]
+            lvtt['05_index'] = struct.unpack('>h', info[i+8:i+10])[0]
+            lvtt['00_name'] = cf['05_cp_info'][lvtt['04_signature_index']]['03_bytes'] + ' ' + cf['05_cp_info'][lvtt['03_name_index']]['03_bytes']
+            i += 10
+            att['04_local_variable_type_table'].append(lvtt)
+    elif att['00_attribute_name'] == 'Signature': # Signature
+        att['03_signature_index'] = struct.unpack('>h', info[:2])[0]
+        att['00_signature'] = cf['05_cp_info'][att['03_signature_index']]['03_bytes']
     elif att['00_attribute_name'] == 'Exceptions': # Exceptions
         att['03_number_of_exceptions'] = struct.unpack('>h', info[:2])[0]
         i = 2
@@ -170,38 +187,40 @@ def parseAnnotation(an, info, cf):
     return i
 
 def parseElementValue(ev, info, cf):
-        ev['01_tag'] = info[0]
-        if ev['01_tag'] in 'BCDFIJSZs':
-            ev['02_element_value_index'] = struct.unpack('>h', info[1:3])[0]
-            if ev['01_tag'] == 'I':
-                ev['02_element_value'] = cf['05_cp_info'][ev['02_element_value_index']]['02_bytes']
-            else:
-                ev['02_element_value'] = cf['05_cp_info'][ev['02_element_value_index']]['03_bytes'].decode('utf-8')
-            return 3
-        elif ev['01_tag'] == 'e':
-            ev['02_type_name_index'] = struct.unpack('>h', info[:2])[0]
-            ev['02_type_name'] = cf['05_cp_info'][ev['02_type_name_index']]['03_bytes']
-            ev['02_const_name_index'] = struct.unpack('>h', info[2:4])[0]
-            ev['02_const_name'] = cf['05_cp_info'][ev['02_const_name_index']]['03_bytes']
-            return 5
-        elif ev['01_tag'] == 'c':
-            ev['02_class_info_index'] = struct.unpack('>h', info[:2])[0]
-            ev['02_class_info'] = cf['05_cp_info'][ev['02_class_info_index']]['03_bytes']
-            return 3
-        elif ev['01_tag'] == '@':
-            ev['02_annotation'] = {}
-            i += parseAnnotation(el['02_annotation'], info[1:], cf)
-        elif ev['02_tag'] == '[':
-            ev['02_num_values'] = struct.unpack('>h', info[1:3])[0]
-            ev['03_values'] = []
-            i += 3
-            for x in range():
-                ev2 = {}
-                i += parseElementValue(ev2, info[3:], cf)
-                ev['03_values'].append(ev2)
-            return i
+    ev['01_tag'] = info[0]
+    if chr(ev['01_tag']) in 'BCDFIJSZs':
+        ev['02_element_value_index'] = struct.unpack('>h', info[1:3])[0]
+        if chr(ev['01_tag']) == 'I':
+            ev['02_element_value'] = cf['05_cp_info'][ev['02_element_value_index']]['02_bytes']
         else:
-            raise '#unknown element and value tag %s' % el['02_tag']
+            ev['02_element_value'] = cf['05_cp_info'][ev['02_element_value_index']]['03_bytes']
+        return 3
+    elif chr(ev['01_tag']) == 'e':
+        # For tag 'e', the structure is:
+        # tag (1 byte) + type_name_index (2 bytes) + const_name_index (2 bytes)
+        ev['02_type_name_index'] = struct.unpack('>h', info[1:3])[0]
+        ev['02_const_name_index'] = struct.unpack('>h', info[3:5])[0]
+        ev['02_type_name'] = cf['05_cp_info'][ev['02_type_name_index']]['03_bytes']
+        ev['02_const_name'] = cf['05_cp_info'][ev['02_const_name_index']]['03_bytes']
+        return 5
+    elif chr(ev['01_tag']) == 'c':
+        ev['02_class_info_index'] = struct.unpack('>h', info[1:3])[0]
+        ev['02_class_info'] = cf['05_cp_info'][ev['02_class_info_index']]['03_bytes']
+        return 3
+    elif chr(ev['01_tag']) == '@':
+        ev['02_annotation'] = {}
+        i += parseAnnotation(el['02_annotation'], info[1:], cf)
+    elif chr(ev['02_tag']) == '[':
+        ev['02_num_values'] = struct.unpack('>h', info[1:3])[0]
+        ev['03_values'] = []
+        i += 3
+        for x in range():
+            ev2 = {}
+            i += parseElementValue(ev2, info[3:], cf)
+            ev['03_values'].append(ev2)
+        return i
+    else:
+        raise ValueError(f"Unknown element and value tag: {chr(ev['02_tag'])}")
 
 def parseStackMapFrame(frame, info):
     frame['00_frame_type'] = struct.unpack('B', info[:1])[0]
@@ -291,6 +310,16 @@ def writeAttribute(att, linenum_cp_index=None):
             result += struct.pack('>h', lvt['03_name_index'])
             result += struct.pack('>h', lvt['04_descriptor_index'])
             result += struct.pack('>h', lvt['05_index'])
+    elif att['00_attribute_name'] == 'LocalVariableTypeTable': # LocalVariableTypeTable
+        result += struct.pack('>h', len(att['04_local_variable_type_table']))
+        for lvtt in att['04_local_variable_type_table']:
+            result += struct.pack('>h', lvtt['01_start_pc'])
+            result += struct.pack('>h', lvtt['02_length'])
+            result += struct.pack('>h', lvtt['03_name_index'])
+            result += struct.pack('>h', lvtt['04_signature_index'])
+            result += struct.pack('>h', lvtt['05_index'])
+    elif att['00_attribute_name'] == 'Signature': # Signature
+        result += struct.pack('>h', att['03_signature_index'])
     elif att['00_attribute_name'] == 'Exceptions': # Exceptions
         result += struct.pack('>h', att['03_number_of_exceptions'])
         for eit in att['04_exception_index_table']:
